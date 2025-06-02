@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Gerador de Token de Avaliação</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .token-display {
+            font-size: 1.5rem; /* 24px */
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            padding: 0.75rem 1.5rem; /* 12px 24px */
+            border: 2px dashed #60a5fa; /* blue-400 */
+            border-radius: 0.5rem; /* 8px */
+            background-color: #eff6ff; /* blue-50 */
+            color: #1e40af; /* blue-800 */
+            text-align: center;
+            user-select: all; /* Allow easy copying */
+            cursor: pointer;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            min-width: 250px;
+            text-align: center;
+        }
+        .toast.success {
+            background-color: #22c55e; /* green-500 */
+        }
+        .toast.error {
+            background-color: #ef4444; /* red-500 */
+        }
+        .toast.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+        <h1 class="text-2xl font-bold text-center text-gray-700 mb-6">Gerador de Token de Avaliação</h1>
+        <p class="text-sm text-center text-gray-500 mb-4">Backend: Google Sheets & Apps Script</p>
+
+        <div class="mb-4">
+            <label for="appsScriptUrl" class="block text-sm font-medium text-gray-700">URL do Google Apps Script:</label>
+            <input type="url" id="appsScriptUrl" name="appsScriptUrl" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="https://script.google.com/macros/s/AKfycbyRDnkW4BR2fHDDVaFgRkxyrT7lGXPgO5TEeioqPaFMzm1ckvBAtx8u99gzQ1AOkdXG/exec" value="https://script.google.com/macros/s/AKfycbyRDnkW4BR2fHDDVaFgRkxyrT7lGXPgO5TEeioqPaFMzm1ckvBAtx8u99gzQ1AOkdXG/exec">
+            <p class="mt-1 text-xs text-gray-500">Esta URL é obtida após implantar seu Google Apps Script.</p>
+        </div>
+
+        <button id="generateTokenBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150 ease-in-out mb-4">
+            Gerar Novo Token
+        </button>
+
+        <div id="tokenSection" class="hidden mt-6">
+            <h2 class="text-lg font-semibold text-gray-600 mb-2">Token Ativo Gerado:</h2>
+            <div id="tokenDisplay" class="token-display" title="Clique para copiar">
+                </div>
+            <p class="text-sm text-gray-500 mt-2 text-center">Este token é válido até que um novo seja gerado. A localização foi registrada na Planilha Google.</p>
+        </div>
+
+        <div id="loading" class="hidden text-center mt-4">
+            <svg class="animate-spin h-8 w-8 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-blue-600 mt-2">Processando...</p>
+        </div>
+        <div id="messageArea" class="mt-4 text-center"></div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // Elementos da UI
+        const generateTokenBtn = document.getElementById('generateTokenBtn');
+        const tokenSection = document.getElementById('tokenSection');
+        const tokenDisplay = document.getElementById('tokenDisplay');
+        const loading = document.getElementById('loading');
+        const messageArea = document.getElementById('messageArea'); // Não usado ativamente, mas mantido
+        const toast = document.getElementById('toast');
+        const appsScriptUrlInput = document.getElementById('appsScriptUrl');
+
+        // Tenta carregar a URL do Apps Script do localStorage
+        appsScriptUrlInput.value = localStorage.getItem('appsScriptUrl_admin') || '';
+
+
+        // Função para mostrar toast
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        // Função para gerar um token simples
+        function generateSimpleToken(length = 6) {
+            return Math.random().toString(36).substring(2, 2 + length).toUpperCase();
+        }
+
+        // Event listener para o botão de gerar token
+        generateTokenBtn.addEventListener('click', async () => {
+            const SCRIPT_URL = appsScriptUrlInput.value.trim();
+            if (!SCRIPT_URL) {
+                showToast('Por favor, insira a URL do Google Apps Script.', 'error');
+                appsScriptUrlInput.focus();
+                return;
+            }
+            // Salva a URL no localStorage para conveniência
+            localStorage.setItem('appsScriptUrl_admin', SCRIPT_URL);
+
+
+            loading.classList.remove('hidden');
+            messageArea.textContent = '';
+            tokenSection.classList.add('hidden');
+            generateTokenBtn.disabled = true;
+
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 10000, // 10 segundos
+                        maximumAge: 0 // Força a obtenção de uma nova localização
+                    });
+                });
+
+                const { latitude, longitude, accuracy } = position.coords;
+                console.log(`Localização obtida: Lat: ${latitude}, Lon: ${longitude}, Precisão: ${accuracy}m`);
+
+                if (accuracy > 200) { // Verifica se a precisão é aceitável
+                     showToast(`Precisão da localização (${accuracy.toFixed(0)}m) muito baixa. Tente em local aberto.`, 'error');
+                     console.warn(`Precisão da localização (${accuracy.toFixed(0)}m) muito baixa.`);
+                     loading.classList.add('hidden');
+                     generateTokenBtn.disabled = false;
+                     return;
+                }
+
+                const newToken = generateSimpleToken();
+                const payload = {
+                    action: 'generateToken',
+                    tokenValue: newToken,
+                    latitude: latitude,
+                    longitude: longitude,
+                    // adminId: 'admin123' // Opcional: se quiser identificar o admin
+                };
+
+                showToast('Enviando para o Google Apps Script...', 'info');
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors', // Essencial para chamadas cross-origin para Apps Script
+                    cache: 'no-cache',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    // Apps Script espera o payload como uma string no e.postData.contents
+                    // mas para JSON, o Apps Script precisa fazer JSON.parse(e.postData.contents).
+                    // O fetch API com application/json faz isso automaticamente.
+                    // No entanto, Apps Script é peculiar. A forma mais robusta é enviar como texto e parsear no script.
+                    // Mas vamos tentar direto com JSON, pois o script está preparado.
+                    // Se der erro "Unexpected token P in JSON at position 0" ou similar,
+                    // pode ser necessário mudar para:
+                    // body: JSON.stringify({ postData: { contents: JSON.stringify(payload) } })
+                    // e ajustar o Apps Script para e.parameter.postData.contents
+                    // Ou, mais simples, enviar como text/plain e parsear no Apps Script:
+                    // headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload)
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    // Tenta ler a resposta de erro do Apps Script se houver
+                    let errorMsg = `Erro HTTP: ${response.status} ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData && errorData.message) {
+                            errorMsg = errorData.message;
+                        }
+                    } catch (e) {
+                        // Não conseguiu parsear o JSON de erro, usa o status HTTP
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    tokenDisplay.textContent = result.token; // Usa o token retornado pelo script
+                    tokenSection.classList.remove('hidden');
+                    showToast('Novo token gerado e salvo com sucesso na Planilha!', 'success');
+                    console.log('Token salvo via Apps Script:', result);
+                } else {
+                    throw new Error(result.message || 'Erro retornado pelo Apps Script.');
+                }
+
+            } catch (error) {
+                console.error('Erro ao gerar token via Apps Script:', error);
+                let errorMessage = 'Erro ao gerar token. ';
+                if (error.message.includes('geolocation')) { // Erro de geolocalização
+                    if (error.code === 1) errorMessage += 'Permissão de localização negada.';
+                    else if (error.code === 2) errorMessage += 'Localização indisponível.';
+                    else if (error.code === 3) errorMessage += 'Tempo esgotado ao obter localização.';
+                    else errorMessage += error.message;
+                } else { // Erro de fetch ou do Apps Script
+                    errorMessage += error.message;
+                }
+                showToast(errorMessage, 'error');
+            } finally {
+                loading.classList.add('hidden');
+                generateTokenBtn.disabled = false;
+            }
+        });
+
+        tokenDisplay.addEventListener('click', () => {
+            if (navigator.clipboard && tokenDisplay.textContent) {
+                navigator.clipboard.writeText(tokenDisplay.textContent)
+                    .then(() => {
+                        showToast('Token copiado para a área de transferência!', 'success');
+                    })
+                    .catch(err => {
+                        console.error('Erro ao copiar token:', err);
+                        showToast('Erro ao copiar token. Tente manualmente.', 'error');
+                        // Fallback
+                        try {
+                            const textArea = document.createElement("textarea");
+                            textArea.value = tokenDisplay.textContent;
+                            document.body.appendChild(textArea);
+                            textArea.focus();
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            showToast('Token copiado! (fallback)', 'success');
+                        } catch (e) {
+                            console.error('Falha no fallback de cópia:', e);
+                        }
+                    });
+            }
+        });
+    </script>
+</body>
+</html>
