@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin - Gerador de Token de Avaliação</title>
+    <title>Admin - Gerador de Token de Avaliação (Google Sheets)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -43,6 +43,9 @@
         .toast.error {
             background-color: #ef4444; /* red-500 */
         }
+        .toast.info { /* Added info style for toasts */
+            background-color: #3b82f6; /* blue-500 */
+        }
         .toast.show {
             opacity: 1;
         }
@@ -51,11 +54,11 @@
 <body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
     <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
         <h1 class="text-2xl font-bold text-center text-gray-700 mb-6">Gerador de Token de Avaliação</h1>
-        <p class="text-sm text-center text-gray-500 mb-4">Backend: Google Sheets & Apps Script</p>
+        <p class="text-sm text-center text-gray-500 mb-4">Backend: Google Sheets & Apps Script (Raio Dinâmico)</p>
 
         <div class="mb-4">
             <label for="appsScriptUrl" class="block text-sm font-medium text-gray-700">URL do Google Apps Script:</label>
-            <input type="url" id="appsScriptUrl" name="appsScriptUrl" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="https://script.google.com/macros/s/AKfycbyRDnkW4BR2fHDDVaFgRkxyrT7lGXPgO5TEeioqPaFMzm1ckvBAtx8u99gzQ1AOkdXG/exec" value="https://script.google.com/macros/s/AKfycbyRDnkW4BR2fHDDVaFgRkxyrT7lGXPgO5TEeioqPaFMzm1ckvBAtx8u99gzQ1AOkdXG/exec">
+            <input type="url" id="appsScriptUrl" name="appsScriptUrl" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="Cole a URL do script implantado aqui" value="">
             <p class="mt-1 text-xs text-gray-500">Esta URL é obtida após implantar seu Google Apps Script.</p>
         </div>
 
@@ -67,7 +70,7 @@
             <h2 class="text-lg font-semibold text-gray-600 mb-2">Token Ativo Gerado:</h2>
             <div id="tokenDisplay" class="token-display" title="Clique para copiar">
                 </div>
-            <p class="text-sm text-gray-500 mt-2 text-center">Este token é válido até que um novo seja gerado. A localização foi registrada na Planilha Google.</p>
+            <p id="tokenInfo" class="text-sm text-gray-500 mt-2 text-center">Este token é válido até que um novo seja gerado. A localização e precisão foram registradas na Planilha Google.</p>
         </div>
 
         <div id="loading" class="hidden text-center mt-4">
@@ -87,16 +90,15 @@
         const generateTokenBtn = document.getElementById('generateTokenBtn');
         const tokenSection = document.getElementById('tokenSection');
         const tokenDisplay = document.getElementById('tokenDisplay');
+        const tokenInfo = document.getElementById('tokenInfo'); // Para mostrar a precisão
         const loading = document.getElementById('loading');
-        const messageArea = document.getElementById('messageArea'); // Não usado ativamente, mas mantido
+        const messageArea = document.getElementById('messageArea');
         const toast = document.getElementById('toast');
         const appsScriptUrlInput = document.getElementById('appsScriptUrl');
 
-        // Tenta carregar a URL do Apps Script do localStorage
-        appsScriptUrlInput.value = localStorage.getItem('appsScriptUrl_admin') || '';
+        appsScriptUrlInput.value = localStorage.getItem('appsScriptUrl_admin_dynamic_radius') || '';
 
 
-        // Função para mostrar toast
         function showToast(message, type = 'success') {
             toast.textContent = message;
             toast.className = `toast ${type} show`;
@@ -105,12 +107,10 @@
             }, 3000);
         }
 
-        // Função para gerar um token simples
         function generateSimpleToken(length = 6) {
             return Math.random().toString(36).substring(2, 2 + length).toUpperCase();
         }
 
-        // Event listener para o botão de gerar token
         generateTokenBtn.addEventListener('click', async () => {
             const SCRIPT_URL = appsScriptUrlInput.value.trim();
             if (!SCRIPT_URL) {
@@ -118,8 +118,7 @@
                 appsScriptUrlInput.focus();
                 return;
             }
-            // Salva a URL no localStorage para conveniência
-            localStorage.setItem('appsScriptUrl_admin', SCRIPT_URL);
+            localStorage.setItem('appsScriptUrl_admin_dynamic_radius', SCRIPT_URL);
 
 
             loading.classList.remove('hidden');
@@ -128,24 +127,27 @@
             generateTokenBtn.disabled = true;
 
             try {
+                showToast('Obtendo localização...', 'info');
                 const position = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, {
                         enableHighAccuracy: true,
-                        timeout: 10000, // 10 segundos
-                        maximumAge: 0 // Força a obtenção de uma nova localização
+                        timeout: 10000, 
+                        maximumAge: 0 
                     });
                 });
 
                 const { latitude, longitude, accuracy } = position.coords;
                 console.log(`Localização obtida: Lat: ${latitude}, Lon: ${longitude}, Precisão: ${accuracy}m`);
 
-                if (accuracy > 200) { // Verifica se a precisão é aceitável
-                     showToast(`Precisão da localização (${accuracy.toFixed(0)}m) muito baixa. Tente em local aberto.`, 'error');
-                     console.warn(`Precisão da localização (${accuracy.toFixed(0)}m) muito baixa.`);
-                     loading.classList.add('hidden');
-                     generateTokenBtn.disabled = false;
-                     return;
+                // Não há mais uma verificação de precisão mínima aqui, pois a própria precisão será o raio.
+                // No entanto, uma precisão muito ruim (ex: > 1000m) pode tornar o token inútil.
+                // O administrador deve estar ciente disso.
+                if (accuracy > 5000) { // Um limite alto apenas para evitar valores absurdos
+                     showToast(`Atenção: Precisão da localização (${accuracy.toFixed(0)}m) é muito baixa. O raio de validação será grande.`, 'error'); // Mudado para error para mais visibilidade
+                } else {
+                    showToast(`Localização obtida com precisão de ${accuracy.toFixed(0)}m.`, 'success');
                 }
+
 
                 const newToken = generateSimpleToken();
                 const payload = {
@@ -153,49 +155,37 @@
                     tokenValue: newToken,
                     latitude: latitude,
                     longitude: longitude,
-                    // adminId: 'admin123' // Opcional: se quiser identificar o admin
+                    accuracy: accuracy // Enviando a precisão para o script
                 };
 
                 showToast('Enviando para o Google Apps Script...', 'info');
                 const response = await fetch(SCRIPT_URL, {
                     method: 'POST',
-                    mode: 'cors', // Essencial para chamadas cross-origin para Apps Script
+                    mode: 'cors', 
                     cache: 'no-cache',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    // Apps Script espera o payload como uma string no e.postData.contents
-                    // mas para JSON, o Apps Script precisa fazer JSON.parse(e.postData.contents).
-                    // O fetch API com application/json faz isso automaticamente.
-                    // No entanto, Apps Script é peculiar. A forma mais robusta é enviar como texto e parsear no script.
-                    // Mas vamos tentar direto com JSON, pois o script está preparado.
-                    // Se der erro "Unexpected token P in JSON at position 0" ou similar,
-                    // pode ser necessário mudar para:
-                    // body: JSON.stringify({ postData: { contents: JSON.stringify(payload) } })
-                    // e ajustar o Apps Script para e.parameter.postData.contents
-                    // Ou, mais simples, enviar como text/plain e parsear no Apps Script:
-                    // headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload)
                     body: JSON.stringify(payload)
                 });
                 
                 if (!response.ok) {
-                    // Tenta ler a resposta de erro do Apps Script se houver
                     let errorMsg = `Erro HTTP: ${response.status} ${response.statusText}`;
                     try {
                         const errorData = await response.json();
                         if (errorData && errorData.message) {
                             errorMsg = errorData.message;
                         }
-                    } catch (e) {
-                        // Não conseguiu parsear o JSON de erro, usa o status HTTP
-                    }
+                    } catch (e) { /* Ignora erro de parse */ }
                     throw new Error(errorMsg);
                 }
 
                 const result = await response.json();
 
                 if (result.status === 'success') {
-                    tokenDisplay.textContent = result.token; // Usa o token retornado pelo script
+                    tokenDisplay.textContent = result.token;
+                    // Mostra a precisão que foi usada para este token
+                    tokenInfo.textContent = `Este token é válido até que um novo seja gerado. O raio de validação será de ${parseFloat(result.accuracy).toFixed(0)}m (precisão do GPS).`;
                     tokenSection.classList.remove('hidden');
                     showToast('Novo token gerado e salvo com sucesso na Planilha!', 'success');
                     console.log('Token salvo via Apps Script:', result);
@@ -206,12 +196,12 @@
             } catch (error) {
                 console.error('Erro ao gerar token via Apps Script:', error);
                 let errorMessage = 'Erro ao gerar token. ';
-                if (error.message.includes('geolocation')) { // Erro de geolocalização
+                // Verifica se é um erro de geolocalização
+                if (error && error.code && (error.code === 1 || error.code === 2 || error.code === 3)) { // Códigos de erro de Geolocation API
                     if (error.code === 1) errorMessage += 'Permissão de localização negada.';
                     else if (error.code === 2) errorMessage += 'Localização indisponível.';
                     else if (error.code === 3) errorMessage += 'Tempo esgotado ao obter localização.';
-                    else errorMessage += error.message;
-                } else { // Erro de fetch ou do Apps Script
+                } else { // Outros erros (fetch, script, etc.)
                     errorMessage += error.message;
                 }
                 showToast(errorMessage, 'error');
@@ -230,7 +220,6 @@
                     .catch(err => {
                         console.error('Erro ao copiar token:', err);
                         showToast('Erro ao copiar token. Tente manualmente.', 'error');
-                        // Fallback
                         try {
                             const textArea = document.createElement("textarea");
                             textArea.value = tokenDisplay.textContent;
@@ -240,9 +229,7 @@
                             document.execCommand('copy');
                             document.body.removeChild(textArea);
                             showToast('Token copiado! (fallback)', 'success');
-                        } catch (e) {
-                            console.error('Falha no fallback de cópia:', e);
-                        }
+                        } catch (e) { /* Ignora erro de fallback */ }
                     });
             }
         });
